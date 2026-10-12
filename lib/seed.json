@@ -1,0 +1,25 @@
+{
+  "formatVersion": 1,
+  "source": "Dieta.xlsx",
+  "products": [],
+  "profiles": [
+    {
+      "id": "janusz",
+      "name": "Janusz",
+      "kcal": 2550,
+      "protein": 147,
+      "carbs": 293,
+      "fat": 89
+    },
+    {
+      "id": "grazyna",
+      "name": "Grażyna",
+      "kcal": 1750,
+      "protein": 92,
+      "carbs": 210,
+      "fat": 60
+    }
+  ],
+  "entries": [],
+  "logs": []
+}

@@ -1,0 +1,10 @@
+export type Macros = { kcal:number; protein:number; carbs:number; fat:number };
+export type DishIngredient = {productId:string;grams:number};
+export type Product = Macros & {id:string;name:string;manufacturer:string;note:string;archived:number;revision:number;kind:'product'|'dish';totalWeight:number|null;ingredients:DishIngredient[]};
+export type Profile = Macros & {id:string;name:string;revision:number};
+export type Entry = Macros & {id:string;profileId:string;date:string;productId:string;productName:string;grams:number;meal:string;note:string;revision:number};
+export type DayLog = {id:string;profileId:string;date:string;weight:number|null;note:string;revision:number};
+export type DietData = {products:Product[];profiles:Profile[];entries:Entry[];logs:DayLog[]};
+export const macroKeys = ['kcal','protein','carbs','fat'] as const;
+export const macroLabels = {kcal:'Kalorie',protein:'Białko',carbs:'Węglowodany',fat:'Tłuszcze'};
+export const meals = ['Bez kategorii','Śniadanie','Obiad','Kolacja','Przekąska'];
