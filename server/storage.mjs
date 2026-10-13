@@ -75,6 +75,12 @@ export function openStore(dataDir=process.env.DATA_DIR||resolve(root,'data')){
   for(const l of seed.logs)db.prepare('INSERT OR IGNORE INTO day_logs (id,profileId,date,weight,note) VALUES (?,?,?,?,?)').run(l.id,l.profileId,l.date,l.weight,l.note);
   db.prepare("INSERT INTO metadata (key,value) VALUES ('excel_import_v1','done')").run();
  });
+ transaction(()=>{
+  if(db.prepare("SELECT value FROM metadata WHERE key='excel_undated_entries_removed_v1'").get())return;
+  // Remove only the undated rows from the original spreadsheet, preserving assigned dates.
+  db.prepare("DELETE FROM entries WHERE profileId='janusz' AND date='' AND id IN ('janusz-41','janusz-42','janusz-43','janusz-44','janusz-45')").run();
+  db.prepare("INSERT INTO metadata (key,value) VALUES ('excel_undated_entries_removed_v1','done')").run();
+ });
  function read(){return {products:db.prepare('SELECT * FROM products ORDER BY name COLLATE NOCASE').all().map(p=>({...p,ingredients:JSON.parse(p.ingredients)})),profiles:db.prepare('SELECT * FROM profiles ORDER BY id DESC').all(),entries:db.prepare('SELECT * FROM entries ORDER BY date DESC,id').all(),logs:db.prepare('SELECT * FROM day_logs ORDER BY date DESC').all()};}
  function mutate(input){const a=validate(input);return transaction(()=>{
   let result;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {once} from 'node:events';
@@ -8,6 +8,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {openStore} from '../server/storage.mjs';
 import {createApp} from '../server/index.mjs';
 const dir=()=>mkdtempSync(join(tmpdir(),'diet-local-test-'));
+const seed=JSON.parse(readFileSync(new URL('../lib/seed.json',import.meta.url),'utf8'));
 const product={action:'product',id:'test-product',name:'Test produktu',kcal:100,protein:10,carbs:12,fat:3,note:'Notatka do produktu'};
 const entry={action:'entry',id:'test-entry',profileId:'grazyna',date:'2026-10-11',productId:'test-product',grams:150,meal:'Obiad',note:'Notatka wpisu'};
 const secondProduct={...product,id:'second-product',name:'Drugi składnik',kcal:300,protein:20,carbs:40,fat:10};
@@ -86,15 +87,15 @@ test('Legacy databases gain recipe fields without changing history or existing p
  }finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
 
-test('First launch creates an empty database with both profiles and their goals',()=>{
+test('First launch imports spreadsheet data without undated entries and initializes both profiles',()=>{
  const folder=dir();const s=openStore(folder);
- try{const d=s.read();assert.deepEqual(d.products,[]);assert.deepEqual(d.entries,[]);assert.deepEqual(d.logs,[]);
+ try{const d=s.read();assert.equal(d.products.length,seed.products.length);assert.deepEqual(d.entries.map(({revision,...e})=>e).sort((a,b)=>a.id.localeCompare(b.id)),[...seed.entries].sort((a,b)=>a.id.localeCompare(b.id)));assert.deepEqual(d.logs.map(({revision,...l})=>l),seed.logs);assert.ok(d.entries.every(e=>e.date));
  assert.deepEqual(d.profiles.map(p=>({...p})),[{id:'janusz',name:'Janusz',kcal:2550,protein:147,carbs:293,fat:89,revision:1},{id:'grazyna',name:'Grażyna',kcal:1750,protein:92,carbs:210,fat:60,revision:1}]);
  }finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
 test('Database and notes survive restart; seed does not duplicate data',()=>{
  const folder=dir();let s=openStore(folder);
- try{s.mutate(product);s.mutate(entry);s.mutate({action:'log',profileId:'grazyna',date:'2026-10-11',weight:63.2,note:'Notatka dzienna'});s.close();s=openStore(folder);const d=s.read();assert.equal(d.products.length,1);assert.equal(d.entries.length,1);assert.equal(d.profiles.length,2);assert.equal(d.entries.find(e=>e.id==='test-entry').kcal,150);assert.equal(d.logs.find(l=>l.id==='grazyna-2026-10-11').weight,63.2);assert.equal(d.products.find(p=>p.id==='test-product').note,product.note);}
+ try{s.mutate(product);s.mutate(entry);s.mutate({action:'log',profileId:'grazyna',date:'2026-10-11',weight:63.2,note:'Notatka dzienna'});const before=s.read();s.close();s=openStore(folder);const d=s.read();assert.deepEqual(d,before);assert.equal(d.profiles.length,2);assert.equal(d.entries.find(e=>e.id==='test-entry').kcal,150);assert.equal(d.logs.find(l=>l.id==='grazyna-2026-10-11').weight,63.2);assert.equal(d.products.find(p=>p.id==='test-product').note,product.note);}
  finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
 
@@ -144,7 +145,7 @@ test('Existing databases gain manufacturer without changing products or historic
 });
 test('Editing catalog preserves snapshots; changing grams scales the historical values',()=>{
  const folder=dir();const s=openStore(folder);
- try{s.mutate(product);s.mutate(entry);s.mutate({...product,revision:1,kcal:200});assert.equal(s.read().entries.find(e=>e.id==='test-entry').kcal,150);s.mutate({...entry,revision:1,grams:300});assert.equal(s.read().entries.find(e=>e.id==='test-entry').kcal,300);s.mutate({...entry,id:'new-entry'});assert.equal(s.read().entries.find(e=>e.id==='new-entry').kcal,300);assert.equal(s.read().entries.filter(e=>e.profileId==='janusz').length,0);}
+ try{const januszEntries=s.read().entries.filter(e=>e.profileId==='janusz');s.mutate(product);s.mutate(entry);s.mutate({...product,revision:1,kcal:200});assert.equal(s.read().entries.find(e=>e.id==='test-entry').kcal,150);s.mutate({...entry,revision:1,grams:300});assert.equal(s.read().entries.find(e=>e.id==='test-entry').kcal,300);s.mutate({...entry,id:'new-entry'});assert.equal(s.read().entries.find(e=>e.id==='new-entry').kcal,300);assert.deepEqual(s.read().entries.filter(e=>e.profileId==='janusz'),januszEntries);}
  finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
 test('Concurrent edits and stale deletions are rejected without overwriting data',()=>{
@@ -167,9 +168,31 @@ test('Assigning a date to a draft preserves imported nutrients',()=>{
   const e=s.read().entries.find(e=>!e.date);s.mutate({...e,action:'entry',date:'2026-10-11'});const saved=s.read().entries.find(row=>row.id===e.id);assert.equal(saved.date,'2026-10-11');assert.equal(saved.kcal,e.kcal);assert.equal(s.read().entries.filter(e=>!e.date).length,0);}
  finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
+
+test('Spreadsheet cleanup removes only its undated rows and runs once',()=>{
+ const folder=dir();let s=openStore(folder);
+ try{
+  s.mutate(product);s.mutate(entry);
+  for(const id of ['janusz-41','janusz-42','janusz-43','janusz-44','janusz-45'])s.mutate({...entry,id,profileId:'janusz'});
+  const before=s.read();s.close();
+  const legacy=new DatabaseSync(join(folder,'dieta.sqlite'));
+  try{
+   legacy.prepare('UPDATE entries SET date=? WHERE id IN (?,?,?,?,?)').run('','janusz-42','janusz-43','janusz-44','janusz-45',entry.id);
+   legacy.prepare('DELETE FROM metadata WHERE key=?').run('excel_undated_entries_removed_v1');
+  }finally{legacy.close();}
+  s=openStore(folder);const after=s.read();
+  const expectedEntries=before.entries.filter(e=>!['janusz-42','janusz-43','janusz-44','janusz-45'].includes(e.id)).map(e=>({...e,date:e.id===entry.id?'':e.date})).sort((a,b)=>b.date.localeCompare(a.date)||a.id.localeCompare(b.id));
+  assert.deepEqual(after.entries.map(e=>({...e})),expectedEntries);
+  assert.deepEqual(after.products,before.products);assert.deepEqual(after.profiles,before.profiles);assert.deepEqual(after.logs,before.logs);
+  s.mutate({...entry,id:'janusz-42',profileId:'janusz'});s.close();
+  const newer=new DatabaseSync(join(folder,'dieta.sqlite'));
+  try{newer.prepare('UPDATE entries SET date=? WHERE id=?').run('','janusz-42');}finally{newer.close();}
+  s=openStore(folder);assert.equal(s.read().entries.find(e=>e.id==='janusz-42').date,'');
+ }finally{s.close();rmSync(folder,{recursive:true,force:true});}
+});
 test('Local HTTP API reads/writes SQLite, rejects foreign origins, serves bundled UI',async()=>{
  const folder=dir();const server=createApp({dataDir:folder});server.listen(0,'127.0.0.1');await once(server,'listening');const base='http://127.0.0.1:'+server.address().port;
- try{let r=await fetch(base+'/api/data');assert.equal(r.status,200);assert.equal((await r.json()).products.length,0);
+ try{let r=await fetch(base+'/api/data');assert.equal(r.status,200);assert.equal((await r.json()).products.length,seed.products.length);
  r=await fetch(base+'/api/data',{method:'POST',headers:{Origin:'https://foreign.test','Content-Type':'application/json'},body:JSON.stringify(product)});assert.equal(r.status,403);
  r=await fetch(base+'/api/data',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify(product)});assert.equal(r.status,200);
  r=await fetch(base+'/api/data');assert.equal((await r.json()).products.some(p=>p.id==='test-product'),true);
