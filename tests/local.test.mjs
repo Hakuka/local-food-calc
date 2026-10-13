@@ -169,27 +169,6 @@ test('Assigning a date to a draft preserves imported nutrients',()=>{
  finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
 
-test('Spreadsheet cleanup removes only its undated rows and runs once',()=>{
- const folder=dir();let s=openStore(folder);
- try{
-  s.mutate(product);s.mutate(entry);
-  for(const id of ['janusz-41','janusz-42','janusz-43','janusz-44','janusz-45'])s.mutate({...entry,id,profileId:'janusz'});
-  const before=s.read();s.close();
-  const legacy=new DatabaseSync(join(folder,'dieta.sqlite'));
-  try{
-   legacy.prepare('UPDATE entries SET date=? WHERE id IN (?,?,?,?,?)').run('','janusz-42','janusz-43','janusz-44','janusz-45',entry.id);
-   legacy.prepare('DELETE FROM metadata WHERE key=?').run('excel_undated_entries_removed_v1');
-  }finally{legacy.close();}
-  s=openStore(folder);const after=s.read();
-  const expectedEntries=before.entries.filter(e=>!['janusz-42','janusz-43','janusz-44','janusz-45'].includes(e.id)).map(e=>({...e,date:e.id===entry.id?'':e.date})).sort((a,b)=>b.date.localeCompare(a.date)||a.id.localeCompare(b.id));
-  assert.deepEqual(after.entries.map(e=>({...e})),expectedEntries);
-  assert.deepEqual(after.products,before.products);assert.deepEqual(after.profiles,before.profiles);assert.deepEqual(after.logs,before.logs);
-  s.mutate({...entry,id:'janusz-42',profileId:'janusz'});s.close();
-  const newer=new DatabaseSync(join(folder,'dieta.sqlite'));
-  try{newer.prepare('UPDATE entries SET date=? WHERE id=?').run('','janusz-42');}finally{newer.close();}
-  s=openStore(folder);assert.equal(s.read().entries.find(e=>e.id==='janusz-42').date,'');
- }finally{s.close();rmSync(folder,{recursive:true,force:true});}
-});
 test('Local HTTP API reads/writes SQLite, rejects foreign origins, serves bundled UI',async()=>{
  const folder=dir();const server=createApp({dataDir:folder});server.listen(0,'127.0.0.1');await once(server,'listening');const base='http://127.0.0.1:'+server.address().port;
  try{let r=await fetch(base+'/api/data');assert.equal(r.status,200);assert.equal((await r.json()).products.length,seed.products.length);

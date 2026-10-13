@@ -33,33 +33,15 @@ On a phone or another computer, open `http://SERVER_IP_ADDRESS:3000`, for exampl
 
 Profiles are selected within the application; they are not separate password-protected accounts. With this setup, any device that can connect to the server on your home network can access the application.
 
-## Running with Docker
-
-The repository includes a `Dockerfile` and `compose.yaml`. Build the interface locally before building the Docker image. In the project folder, run:
-
-```
-npm ci
-npm run build
-docker compose up -d --build
-```
-
-The application will be available on port 3000. The `./data` folder is mounted as a persistent volume. Restarting the container does not delete your data.
-
-To stop it:
-
-```
-docker compose down
-```
-
 ## Data Storage
 
 On the first launch, the application creates the `data/` folder and the **`data/dieta.sqlite`** file. SQLite runs in WAL mode; the `dieta.sqlite-wal` and `dieta.sqlite-shm` files may also exist while the application is running.
 
-New databases import the products, dated diary entries, daily notes, and both profiles with their default targets from `lib/seed.json`. Undated spreadsheet entries are excluded.
+New databases import the products, dated diary entries, daily notes, and both profiles with their default targets from `lib/seed.json`. The seed contains no undated spreadsheet entries.
 
 Initialization runs only once. Subsequent launches preserve your data, and changes to the seed do not clear an existing database. The `data/` folder and SQLite files are excluded from Git. Do not delete the `data` folder if you want to keep your history.
 
-On startup, a one-time cleanup removes the original undated spreadsheet rows (`janusz-41` through `janusz-45`) from existing databases, only if their dates are still empty. Rows that have been assigned a date are preserved. New diary entries default to the selected day; editing keeps the saved date, including an empty field. A date is required when saving.
+New diary entries default to the selected day; editing keeps the saved date, including an empty field. A date is required when saving.
 
 In the **Products (Produkty)** tab, the **Add Item (Dodaj pozycję)** button opens a form with a **Product / Dish (Produkt / Danie)** toggle, set to product by default. A name is required; the product manufacturer is optional. For a dish, select products from the searchable list, enter each ingredient's weight in grams, and specify the **total weight of the finished dish**. The preview automatically shows nutritional values per 100 g. Ingredients and weight are saved with the dish and can be edited later. Saving the dish again recalculates its values using the current product data. A saved dish can be selected in the diary just like a product.
 
@@ -68,7 +50,7 @@ Search covers the name, manufacturer, and note. Archiving a product requires con
 You can set a different data folder:
 
 ```powershell
-$env:DATA_DIR = 'C:\docker\dieta\data'
+$env:DATA_DIR = 'C:\dieta\data'
 npm start
 ```
 
