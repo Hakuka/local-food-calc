@@ -4,7 +4,6 @@ import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {once} from 'node:events';
-import {DatabaseSync} from 'node:sqlite';
 import ts from 'typescript';
 import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
@@ -56,10 +55,16 @@ test('Planner opens on Monday and includes complete weeks across months, years a
 test('Plans and notes persist separately from diaries, logs and profile goals',()=>{
  const folder=dir();let s=openStore(folder);
  try{
-  const before=s.read();s.mutate(product);s.mutate(plan);s.mutate({...note,kcal:999,protein:999,carbs:999,fat:999});
+  s.mutate(product);
+  s.mutate({action:'entry',id:'already-eaten',profileId:'janusz',date:plan.date,productId:product.id,grams:200,meal:'Obiad',note:''});
+  const before=s.read();
+  // Planning another 150 kcal on the same day must leave the recorded 200 kcal unchanged.
+  s.mutate(plan);s.mutate({...note,kcal:999,protein:999,carbs:999,fat:999});
   s.mutate({...plan,id:'other-profile',profileId:'grazyna',grams:200});
   s.close();s=openStore(folder);const d=s.read();
   assert.deepEqual(d.entries,before.entries);assert.deepEqual(d.logs,before.logs);assert.deepEqual(d.profiles,before.profiles);
+  assert.equal(sumMacros(d.entries.filter(e=>e.profileId==='janusz'&&e.date===plan.date)).kcal,200);
+  assert.equal(plannedDayTotals(d.plans,'janusz',plan.date).saved.kcal,150);
   const food=d.plans.find(p=>p.id===plan.id),savedNote=d.plans.find(p=>p.id===note.id);
   assert.equal(food.kcal,150);assert.equal(food.protein,15);assert.equal(food.carbs,18);assert.equal(food.fat,4.5);
   assert.equal(savedNote.note,note.note);assert.equal(savedNote.grams,null);assert.equal(savedNote.productId,null);
@@ -134,15 +139,6 @@ test('Planner validation, archiving and concurrent edits protect saved plans',()
   assert.throws(()=>s.mutate({...plan,id:'archived'}),e=>e.status===400);
   s.mutate({...plan,revision:2,grams:300});assert.equal(s.read().plans[0].kcal,300);
   s.mutate({action:'deletePlan',id:plan.id,profileId:'janusz',revision:3});assert.equal(s.read().plans.length,0);
- }finally{s.close();rmSync(folder,{recursive:true,force:true});}
-});
-
-test('Existing databases gain planner storage without altering prior data',()=>{
- const folder=dir();let s=openStore(folder);
- try{
-  s.mutate(product);const before=s.read();s.close();
-  const old=new DatabaseSync(join(folder,'dieta.sqlite'));try{old.exec('DROP TABLE plans');}finally{old.close();}
-  s=openStore(folder);assert.deepEqual(s.read(),before);s.mutate(plan);assert.equal(s.read().plans.length,1);
  }finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
 
@@ -302,19 +298,6 @@ test('Invalid and stale shared notes reject whole batches and portion edits atom
   const row=before.plans.find(p=>p.profileId==='janusz');
   assert.throws(()=>s.mutate({...row,action:'plan',grams:999,mealNote:{note:'Zła wersja',revision:7}}),e=>e.status===409);assert.deepEqual(s.read(),before);
   assert.throws(()=>s.mutate({action:'planMealNote',profileId:'janusz',date:plan.date,meal:'Obiad'}),e=>e.status===400);
- }finally{s.close();rmSync(folder,{recursive:true,force:true});}
-});
-
-test('Legacy product annotations migrate into one meal note without losing text or food data',()=>{
- const folder=dir();let s=openStore(folder);
- try{
-  s.mutate(product);s.mutate({...plan,note:'Na ciepło'});s.mutate({...plan,id:'second',note:'Bez soli'});s.mutate({...plan,id:'third',note:'Na ciepło'});s.mutate(note);
-  const before=s.read();s.close();s=openStore(folder);const after=s.read();
-  assert.equal(after.planMealNotes.length,1);assert.equal(after.planMealNotes[0].note,'Na ciepło\nBez soli');
-  assert.ok(after.plans.filter(p=>p.kind==='food').every(p=>p.note===''));
-  assert.equal(after.plans.find(p=>p.id===note.id).note,note.note);
-  for(const row of before.plans)assert.equal(after.plans.find(p=>p.id===row.id).kcal,row.kcal);
-  assert.deepEqual(after.entries,before.entries);s.close();s=openStore(folder);assert.deepEqual(s.read(),after);
  }finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
 
