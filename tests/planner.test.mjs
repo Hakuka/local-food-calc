@@ -17,14 +17,22 @@ function moduleUrl(path,imports={}){
  for(const [name,url] of Object.entries(imports))outputText=outputText.replaceAll(`from '${name}'`,`from '${url}'`).replaceAll(`from "${name}"`,`from "${url}"`);
  return 'data:text/javascript;base64,'+Buffer.from(outputText).toString('base64');
 }
+const idsUrl=moduleUrl('../lib/id.ts');
 const typesUrl=moduleUrl('../lib/types.ts');
 const calculationsUrl=moduleUrl('../lib/calculations.ts',{'./types':typesUrl});
 const {startOfWeek,plannerDates,navigatePlanner,plannedDayTotals,plannedPortion,shoppingLists,sumMacros,today,dateLabel}=await import(calculationsUrl);
-const {Planner,PlanForm,MealNoteForm,ShoppingResults}=await import(moduleUrl('../app/planner.tsx',{'../lib/types':typesUrl,'../lib/calculations':calculationsUrl,react:import.meta.resolve('react'),'react/jsx-runtime':import.meta.resolve('react/jsx-runtime'),'lucide-react':import.meta.resolve('lucide-react')}));
+const {Planner,PlanForm,MealNoteForm,ShoppingResults}=await import(moduleUrl('../app/planner.tsx',{'../lib/types':typesUrl,'../lib/calculations':calculationsUrl,'../lib/id':idsUrl,react:import.meta.resolve('react'),'react/jsx-runtime':import.meta.resolve('react/jsx-runtime'),'lucide-react':import.meta.resolve('lucide-react')}));
 const product={action:'product',id:'planner-product',name:'Ryż do planu',manufacturer:'Test',kcal:100,protein:10,carbs:12,fat:3,note:''};
 const plan={action:'plan',id:'planned-food',profileId:'janusz',date:'2026-10-19',kind:'food',productId:product.id,grams:150,meal:'Obiad',note:''};
 const note={...plan,id:'planned-note',kind:'note',productId:null,grams:null,note:'Zamawiamy pizzę'};
 const dir=()=>mkdtempSync(join(tmpdir(),'diet-planner-test-'));
+
+test('New planner forms render over HTTP when crypto.randomUUID is unavailable',t=>{
+ const native=globalThis.crypto;
+ t.mock.getter(globalThis,'crypto',()=>({getRandomValues:native.getRandomValues.bind(native)}));
+ const html=renderToStaticMarkup(createElement(PlanForm,{products:[],plans:[],profileId:'janusz',date:'2026-10-19',busy:false,submit:async()=>true,close:()=>{},remove:()=>{}}));
+ assert.match(html,/Szukaj produktu lub dania/);assert.match(html,/Dodaj kolejną pozycję/);
+});
 
 test('Planner opens on Monday and includes complete weeks across months, years and DST',()=>{
  for(const [date,monday] of [['2026-10-14','2026-10-12'],['2026-10-18','2026-10-12'],['2026-10-19','2026-10-19'],['2027-01-01','2026-12-28'],['2026-03-29','2026-03-23'],['2026-10-25','2026-10-19']]){

@@ -2,6 +2,7 @@ import {useId,useState,type FormEvent} from 'react';
 import {CalendarDays,ChevronLeft,ChevronRight,Package,Plus,Search,ShoppingBasket,StickyNote,Trash2,X} from 'lucide-react';
 import {type PlanItem,type PlanMealNote,type Product,macroKeys,macroLabels,meals} from '../lib/types';
 import {dateLabel,navigatePlanner,plannerDates,plannedDayTotals,plannedPortion,shiftDate,shoppingLists,sumMacros,today,type PlannerRange,type ShoppingList} from '../lib/calculations';
+import {createId} from '../lib/id';
 
 const number=(n:number,digits=1)=>new Intl.NumberFormat('pl-PL',{maximumFractionDigits:digits}).format(n);
 const normalize=(s:string)=>s.toLocaleLowerCase('pl').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/ł/g,'l');
@@ -46,7 +47,7 @@ export function ShoppingResults({lists,mode,close}:{lists:ShoppingList[];mode:'w
 }
 
 export type PlanDraft={id:string;kind:'food'|'note';productId:string;grams:string;note:string};
-const emptyDraft=():PlanDraft=>({id:crypto.randomUUID(),kind:'food',productId:'',grams:'100',note:''});
+const emptyDraft=():PlanDraft=>({id:createId(),kind:'food',productId:'',grams:'100',note:''});
 const validDraft=(row:PlanDraft)=>row.kind==='note'?!!row.note.trim():!!row.productId&&Number.isFinite(Number(row.grams))&&Number(row.grams)>0&&Number(row.grams)<=100000;
 
 function PlanDraftRow({row,index,products,busy,change,remove}:{row:PlanDraft;index:number;products:Product[];busy:boolean;change:(row:PlanDraft)=>void;remove?:()=>void}){
@@ -63,7 +64,7 @@ function PlanDraftRow({row,index,products,busy,change,remove}:{row:PlanDraft;ind
 }
 
 export function PlanForm({item,product,products,plans,mealNotes=[],profileId,date,busy,submit,close,remove}:{item?:PlanItem;product?:Product;products:Product[];plans:PlanItem[];mealNotes?:PlanMealNote[];profileId:string;date:string;busy:boolean;submit:(payload:unknown)=>Promise<boolean>;close:()=>void;remove:(item:PlanItem)=>void}){
- const [rows,setRows]=useState<PlanDraft[]>(()=>[{id:item?.id||crypto.randomUUID(),kind:item?.kind||'food',productId:product?.id||item?.productId||'',grams:item?.grams!=null?String(item.grams):'100',note:item?.note||''}]);
+ const [rows,setRows]=useState<PlanDraft[]>(()=>[{id:item?.id||createId(),kind:item?.kind||'food',productId:product?.id||item?.productId||'',grams:item?.grams!=null?String(item.grams):'100',note:item?.note||''}]);
  const [day,setDay]=useState(item?.date||date);const [meal,setMeal]=useState(item?.meal||'Bez kategorii');const [alsoOther,setAlsoOther]=useState(false);const [error,setError]=useState('');
  const [noteDrafts,setNoteDrafts]=useState<Record<string,string>>({});
  const noteKey=day+'|'+meal;const mealNote=mealNotes.find(n=>n.profileId===profileId&&n.date===day&&n.meal===meal);
