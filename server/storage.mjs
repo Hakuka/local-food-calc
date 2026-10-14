@@ -2,6 +2,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync,readFileSync} from 'node:fs';
 import {resolve,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {randomUUID} from 'node:crypto';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 export const macroKeys=['kcal','protein','carbs','fat'];
 export const meals=['Bez kategorii','Śniadanie','Obiad','Kolacja','Przekąska'];
@@ -12,9 +13,12 @@ CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY,name TEXT NOT NULL,kcal
 CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY,name TEXT NOT NULL,manufacturer TEXT NOT NULL DEFAULT '',kcal REAL NOT NULL,protein REAL NOT NULL,carbs REAL NOT NULL,fat REAL NOT NULL,note TEXT NOT NULL DEFAULT '',archived INTEGER NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 1,kind TEXT NOT NULL DEFAULT 'product',totalWeight REAL,ingredients TEXT NOT NULL DEFAULT '[]');
 CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY,profileId TEXT NOT NULL REFERENCES profiles(id),date TEXT NOT NULL,productId TEXT NOT NULL REFERENCES products(id),productName TEXT NOT NULL,grams REAL NOT NULL,meal TEXT NOT NULL DEFAULT 'Bez kategorii',note TEXT NOT NULL DEFAULT '',kcal REAL NOT NULL,protein REAL NOT NULL,carbs REAL NOT NULL,fat REAL NOT NULL,revision INTEGER NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS day_logs (id TEXT PRIMARY KEY,profileId TEXT NOT NULL REFERENCES profiles(id),date TEXT NOT NULL,weight REAL,note TEXT NOT NULL DEFAULT '',revision INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS plans (id TEXT PRIMARY KEY,profileId TEXT NOT NULL REFERENCES profiles(id),date TEXT NOT NULL,kind TEXT NOT NULL,productId TEXT REFERENCES products(id),productName TEXT NOT NULL DEFAULT '',grams REAL,meal TEXT NOT NULL DEFAULT 'Bez kategorii',note TEXT NOT NULL DEFAULT '',kcal REAL NOT NULL DEFAULT 0,protein REAL NOT NULL DEFAULT 0,carbs REAL NOT NULL DEFAULT 0,fat REAL NOT NULL DEFAULT 0,revision INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS plan_meal_notes (id TEXT PRIMARY KEY,profileId TEXT NOT NULL REFERENCES profiles(id),date TEXT NOT NULL,meal TEXT NOT NULL,note TEXT NOT NULL DEFAULT '',revision INTEGER NOT NULL DEFAULT 1,UNIQUE(profileId,date,meal));
 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS entries_profile_date ON entries(profileId,date);
 CREATE INDEX IF NOT EXISTS logs_profile_date ON day_logs(profileId,date);
+CREATE INDEX IF NOT EXISTS plans_profile_date ON plans(profileId,date);
 `;
 
 function validate(input){
@@ -27,6 +31,12 @@ function validate(input){
  const profile=()=>{if(!['janusz','grazyna'].includes(a.profileId))throw new AppError('Nieprawidłowy profil.');};
  const date=()=>{text('date',10,true);const d=new Date(a.date+'T12:00:00Z');if(!/^\d{4}-\d{2}-\d{2}$/.test(a.date)||!Number.isFinite(d.getTime())||d.toISOString().slice(0,10)!==a.date)throw new AppError('Nieprawidłowa data.');};
  const macros=()=>{for(const k of macroKeys)num(k,0,k==='kcal'?100000:10000);};
+ const mealNote=()=>{
+  if(a.mealNote===undefined)return;
+  const n=a.mealNote;
+  if(!n||typeof n!=='object'||Array.isArray(n)||typeof n.note!=='string'||n.note.length>4000||n.revision!==undefined&&(!Number.isSafeInteger(n.revision)||n.revision<1))throw new AppError('Nieprawidłowa notatka posiłku.');
+  a.mealNote={note:n.note.trim(),revision:n.revision};
+ };
  switch(a.action){
   case 'product':
    id();revision();text('name',300,true);a.name=a.name.trim();if(a.manufacturer===undefined)a.manufacturer='';text('manufacturer',300);a.manufacturer=a.manufacturer.trim();text('note');
@@ -46,6 +56,34 @@ function validate(input){
   case 'profile':id();if(!['janusz','grazyna'].includes(a.id))throw new AppError('Nieprawidłowy profil.');revision(true);macros();break;
   case 'entry':id();revision();profile();date();text('productId',100,true);num('grams',Number.MIN_VALUE,100000);text('note');if(!meals.includes(a.meal))throw new AppError('Nieprawidłowy posiłek.');break;
   case 'deleteEntry':id();revision(true);break;
+  case 'plan':
+   id();revision();profile();date();
+   if(!['food','note'].includes(a.kind))throw new AppError('Wybierz jedzenie lub notatkę.');
+   if(!meals.includes(a.meal))throw new AppError('Nieprawidłowy posiłek.');
+   text('note',2000,a.kind==='note');
+   if(a.kind==='food'){text('productId',100,true);num('grams',Number.MIN_VALUE,100000);}
+   else{a.productId=null;a.grams=null;a.note=a.note.trim();}
+   mealNote();
+   break;
+  case 'deletePlan':id();profile();revision(true);break;
+  case 'planBatch':
+   profile();date();
+   mealNote();
+   if(!meals.includes(a.meal))throw new AppError('Nieprawidłowy posiłek.');
+   if(a.alsoOther===undefined)a.alsoOther=false;
+   if(typeof a.alsoOther!=='boolean')throw new AppError('Nieprawidłowy wybór drugiej osoby.');
+   if(!Array.isArray(a.items)||!a.items.length||a.items.length>100)throw new AppError('Dodaj od 1 do 100 pozycji planu.');
+   a.items=a.items.map(item=>{
+    if(!item||typeof item!=='object'||Array.isArray(item)||item.revision!==undefined)throw new AppError('Nieprawidłowa pozycja planu.');
+    return validate({...item,action:'plan',profileId:a.profileId,date:a.date,meal:a.meal});
+   });
+   if(new Set(a.items.map(item=>item.id)).size!==a.items.length)throw new AppError('Pozycje planu muszą mieć różne identyfikatory.');
+   break;
+  case 'planMealNote':
+   profile();date();
+   if(!meals.includes(a.meal))throw new AppError('Nieprawidłowy posiłek.');
+   if(a.mealNote===undefined)throw new AppError('Podaj notatkę posiłku.');
+   mealNote();break;
   case 'log':profile();date();revision();text('note',4000);if(a.weight!==null)num('weight',1,500);break;
   default:throw new AppError('Nieznana operacja.');
  }
@@ -75,9 +113,54 @@ export function openStore(dataDir=process.env.DATA_DIR||resolve(root,'data')){
   for(const l of seed.logs)db.prepare('INSERT OR IGNORE INTO day_logs (id,profileId,date,weight,note) VALUES (?,?,?,?,?)').run(l.id,l.profileId,l.date,l.weight,l.note);
   db.prepare("INSERT INTO metadata (key,value) VALUES ('excel_import_v1','done')").run();
  });
- function read(){return {products:db.prepare('SELECT * FROM products ORDER BY name COLLATE NOCASE').all().map(p=>({...p,ingredients:JSON.parse(p.ingredients)})),profiles:db.prepare('SELECT * FROM profiles ORDER BY id DESC').all(),entries:db.prepare('SELECT * FROM entries ORDER BY date DESC,id').all(),logs:db.prepare('SELECT * FROM day_logs ORDER BY date DESC').all()};}
+ function read(){return {products:db.prepare('SELECT * FROM products ORDER BY name COLLATE NOCASE').all().map(p=>({...p,ingredients:JSON.parse(p.ingredients)})),profiles:db.prepare('SELECT * FROM profiles ORDER BY id DESC').all(),entries:db.prepare('SELECT * FROM entries ORDER BY date DESC,id').all(),logs:db.prepare('SELECT * FROM day_logs ORDER BY date DESC').all(),plans:db.prepare('SELECT * FROM plans ORDER BY date,id').all(),planMealNotes:db.prepare('SELECT * FROM plan_meal_notes ORDER BY date,meal').all()};}
+ function saveMealNote(a,merge=false){
+  const current=db.prepare('SELECT * FROM plan_meal_notes WHERE profileId=? AND date=? AND meal=?').get(a.profileId,a.date,a.meal);
+  const n=a.mealNote;
+  if(!merge&&current?.revision!==n.revision)throw new AppError('Notatka posiłku zmieniła się na innym urządzeniu. Odśwież widok i spróbuj ponownie.',409);
+  const note=merge?[...new Set([...(current?.note.split('\n')||[]),...n.note.split('\n')].map(line=>line.trim()).filter(Boolean))].join('\n'):n.note;
+  if(!current&&!note)return {changes:1};
+  if(current?.note===note)return {changes:1};
+  return current?db.prepare('UPDATE plan_meal_notes SET note=?,revision=revision+1 WHERE id=? AND revision=?').run(note,current.id,current.revision):db.prepare('INSERT INTO plan_meal_notes (id,profileId,date,meal,note) VALUES (?,?,?,?,?)').run(randomUUID(),a.profileId,a.date,a.meal,note);
+ }
+ // Preserve old food annotations once, as a single note for each meal.
+ transaction(()=>{
+  const legacy=db.prepare("SELECT * FROM plans WHERE kind='food' AND length(trim(note))>0").all();
+  for(const item of legacy)saveMealNote({...item,mealNote:{note:item.note.trim()}},true);
+  if(legacy.length)db.exec("UPDATE plans SET note='',revision=revision+1 WHERE kind='food' AND length(trim(note))>0");
+ });
+ function savePlan(a){
+  let result;
+   const old=a.revision?db.prepare('SELECT * FROM plans WHERE id=? AND profileId=?').get(a.id,a.profileId):null;
+   if(a.revision&&!old)throw new AppError('Nie znaleziono pozycji planu.',404);
+   let name='',m=Object.fromEntries(macroKeys.map(k=>[k,0]));
+   if(a.kind==='food'){
+    const p=db.prepare('SELECT * FROM products WHERE id=?').get(a.productId);
+    if(!p)throw new AppError('Nie znaleziono produktu.',404);
+    if(p.archived&&old?.productId!==p.id)throw new AppError('Ten produkt jest zarchiwizowany.');
+    // Keep the values used when planning, just as diary entries keep snapshots.
+    const same=old?.kind==='food'&&old.productId===p.id;
+    m=same?portion(Object.fromEntries(macroKeys.map(k=>[k,old[k]*100/old.grams])),a.grams):portion(p,a.grams);
+    name=same?old.productName:p.name;
+   }
+   result=a.revision?db.prepare('UPDATE plans SET date=?,kind=?,productId=?,productName=?,grams=?,meal=?,note=?,kcal=?,protein=?,carbs=?,fat=?,revision=revision+1 WHERE id=? AND profileId=? AND revision=?').run(a.date,a.kind,a.productId,name,a.grams,a.meal,a.note,m.kcal,m.protein,m.carbs,m.fat,a.id,a.profileId,a.revision):db.prepare('INSERT INTO plans (id,profileId,date,kind,productId,productName,grams,meal,note,kcal,protein,carbs,fat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)').run(a.id,a.profileId,a.date,a.kind,a.productId,name,a.grams,a.meal,a.note,m.kcal,m.protein,m.carbs,m.fat);
+
+  return result;
+ }
  function mutate(input){const a=validate(input);return transaction(()=>{
   let result;
+  if(a.action==='planBatch'){
+   for(const item of a.items){
+    if(db.prepare('SELECT id FROM plans WHERE id=?').get(item.id))throw new AppError('Ta pozycja planu już istnieje.',409);
+    savePlan(item);
+    if(a.alsoOther)savePlan({...item,id:randomUUID(),profileId:a.profileId==='janusz'?'grazyna':'janusz'});
+   }
+   if(a.mealNote){
+    saveMealNote(a);
+    if(a.alsoOther&&a.mealNote.note)saveMealNote({...a,profileId:a.profileId==='janusz'?'grazyna':'janusz'},true);
+   }
+   return {ok:true};
+  }
   if(a.action==='product'){
    const duplicate=db.prepare('SELECT id,name FROM products WHERE archived=0 AND id!=?').all(a.id).some(p=>p.name.toLocaleLowerCase('pl')===a.name.toLocaleLowerCase('pl'));
    if(duplicate)throw new AppError('Produkt o tej nazwie już istnieje.',409);
@@ -108,6 +191,9 @@ export function openStore(dataDir=process.env.DATA_DIR||resolve(root,'data')){
    const name=old&&old.productId===p.id?old.productName:p.name;
    result=a.revision?db.prepare('UPDATE entries SET date=?,productId=?,productName=?,grams=?,meal=?,note=?,kcal=?,protein=?,carbs=?,fat=?,revision=revision+1 WHERE id=? AND profileId=? AND revision=?').run(a.date,p.id,name,a.grams,a.meal,a.note,m.kcal,m.protein,m.carbs,m.fat,a.id,a.profileId,a.revision):db.prepare('INSERT INTO entries (id,profileId,date,productId,productName,grams,meal,note,kcal,protein,carbs,fat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(a.id,a.profileId,a.date,p.id,name,a.grams,a.meal,a.note,m.kcal,m.protein,m.carbs,m.fat);
   }else if(a.action==='deleteEntry')result=db.prepare('DELETE FROM entries WHERE id=? AND revision=?').run(a.id,a.revision);
+  else if(a.action==='plan'){result=savePlan(a);if(result.changes&&a.mealNote)saveMealNote(a);}
+  else if(a.action==='planMealNote')result=saveMealNote(a);
+  else if(a.action==='deletePlan')result=db.prepare('DELETE FROM plans WHERE id=? AND profileId=? AND revision=?').run(a.id,a.profileId,a.revision);
   else {const logId=a.profileId+'-'+a.date;result=a.revision?db.prepare('UPDATE day_logs SET weight=?,note=?,revision=revision+1 WHERE id=? AND revision=?').run(a.weight,a.note,logId,a.revision):db.prepare('INSERT OR IGNORE INTO day_logs (id,profileId,date,weight,note) VALUES (?,?,?,?,?)').run(logId,a.profileId,a.date,a.weight,a.note);}
   if(!result.changes)throw new AppError('Dane zmieniły się na innym urządzeniu. Odśwież widok i spróbuj ponownie.',409);
   return {ok:true};

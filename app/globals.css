@@ -156,3 +156,125 @@ label>span,.macro-field-label>span{color:var(--muted)}
 .ingredient-columns,.dish-ingredient{grid-template-columns:minmax(0,1fr) 96px 31px}
 .ingredient-columns>span:nth-child(2){white-space:nowrap}
 .summary-calorie-target{display:block;margin-top:4px}
+
+.planner-toolbar,.planner-controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.planner-toolbar{justify-content:flex-end;margin-left:auto}
+.planner-heading>div:first-child{width:100%}
+.planner-heading .planner-controls{flex-wrap:nowrap;width:auto}
+.planner-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:14px;background:var(--paper)}
+.planner-calendar{min-width:840px}
+.planner-weekdays,.planner-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.planner-weekdays{background:var(--pale);border-bottom:1px solid var(--line)}
+.planner-weekdays>div{padding:14px 10px;font-size:13px;font-weight:600;text-align:center}
+.planner-day{display:flex;flex-direction:column;min-width:0;min-height:180px;padding:12px 8px;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+.planner-day:nth-child(7n){border-right:0}.planner-day:nth-last-child(-n+7){border-bottom:0}
+.planner-day.is-today{box-shadow:inset 0 3px 0 var(--green)}
+.planner-day>header{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:10px;font-size:14px;font-weight:600}
+.planner-day>header small{font-size:11px;color:var(--green)}
+.planner-items{list-style:none;padding:0;margin:0 0 10px;display:flex;flex-direction:column;gap:6px}
+.planner-item{display:flex;align-items:flex-start;gap:5px;width:100%;padding:8px 6px;border:1px solid var(--line);border-radius:7px;background:var(--pale);text-align:left;font-size:13px;line-height:1.5}
+.planner-item>svg{flex-shrink:0;margin-top:3px;color:var(--muted)}
+.planner-item>span{min-width:0}.planner-item-name{white-space:pre-wrap;overflow-wrap:anywhere}
+.planner-item small{display:block;font-size:12px;color:var(--muted);overflow-wrap:anywhere;white-space:pre-wrap}
+.planner-item.note{background:var(--paper);border-style:dashed}
+.planner-item:hover,.planner-add:hover{border-color:var(--green);color:var(--green)}
+.planner-add{display:flex;align-items:center;justify-content:center;gap:5px;margin:0 0 10px;padding:7px;width:100%;border:1px dashed var(--line);border-radius:7px;color:var(--muted);font-size:13px}
+.planner-calendar.week .planner-day{min-height:320px}
+.planner .info-line{margin-top:16px}
+.plan-fields{display:flex;flex-direction:column;gap:8px;border:0;padding:0;margin:0;min-width:0}
+.plan-fields .chosen-product>span{min-width:0;overflow-wrap:anywhere}
+.plan-fields .picker-list{max-height:200px;overflow-y:auto}
+.plan-totals{min-width:0}.plan-totals h3{font-size:15px;margin-bottom:10px}
+.plan-totals-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+.plan-totals table{min-width:450px;font-variant-numeric:tabular-nums}
+.plan-totals th,.plan-totals td{padding:10px 8px;font-size:13px}
+.plan-totals th:first-child,.plan-totals td:first-child{padding-left:12px}
+.plan-totals tbody th{font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink)}
+.plan-totals .plan-after{background:var(--pale);font-weight:600}
+.plan-totals>.form-hint{margin-top:8px}
+.plan-remove{margin-right:auto}
+@media(max-width:760px){
+ .sidebar nav{grid-template-columns:repeat(5,minmax(0,1fr))}
+ .planner-toolbar{gap:12px}.planner-controls{justify-content:space-between;gap:8px}
+ .planner-calendar{min-width:910px}
+ .plan-fields{gap:8px}
+}
+.modal .plan-form{gap:10px}
+.plan-form label{gap:3px}
+.plan-form input,.plan-form select,.plan-form textarea{padding:8px 10px;min-height:36px}
+.plan-form textarea{min-height:48px;line-height:1.5}
+.plan-form .form-grid{gap:10px}
+.plan-drafts{display:flex;flex-direction:column;gap:10px;min-width:0}
+.plan-draft{position:relative;display:flex;flex-direction:column;gap:8px;min-width:0;border:1px solid var(--line);border-radius:9px;padding:8px 10px 10px;margin:0}
+.plan-draft legend{font-size:13px;font-weight:600;padding:0 6px;color:var(--muted)}
+.plan-row-remove{position:absolute;right:6px;top:-25px;background:var(--paper)}
+.plan-draft .item-kind-options span{padding:6px}
+.plan-draft .chosen-product{padding:8px 10px;gap:8px}
+.plan-draft .chosen-product>span{overflow-wrap:anywhere;min-width:0}
+.plan-draft .picker-list{max-height:150px}
+.plan-draft .picker-list>button{padding:8px 10px}
+.plan-draft .picker-list>button>span{min-width:0;overflow-wrap:anywhere}
+.plan-draft .picker-list>button>span small{white-space:normal}
+.plan-add-row{align-self:flex-start}
+.plan-form .plan-copy-toggle{display:flex;flex-direction:row;align-items:center;gap:10px;border:1px solid var(--line);border-radius:8px;padding:9px 10px;cursor:pointer}
+.plan-form .plan-copy-toggle input{width:18px;height:18px;min-height:18px;flex-shrink:0;padding:0;accent-color:var(--green)}
+.plan-copy-toggle>span{display:flex;flex-direction:column;gap:2px;color:var(--ink)}
+.plan-copy-toggle strong{font-size:14px;font-weight:500}
+.plan-copy-toggle small{font-size:12px;font-weight:400;color:var(--muted);line-height:1.5}
+.plan-form .form-actions{margin-top:0;padding-top:10px}
+.plan-form .plan-totals h3{margin-bottom:6px}
+.plan-form .plan-totals th,.plan-form .plan-totals td{padding-top:8px;padding-bottom:8px}
+.planner-date-controls{flex-wrap:nowrap}
+.planner-heading .heading-title-row{flex-wrap:wrap}
+.planner-date-controls .planner-range-picker{position:relative;display:flex;flex-direction:row;align-items:center;gap:8px;padding:9px 10px;min-width:0}
+.planner-range-picker>span{font-size:14px;color:var(--ink);white-space:nowrap}
+.planner-range-picker>svg{flex-shrink:0}
+.planner-date-controls .planner-range-picker input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0}
+.planner-range-picker:focus-within{outline:3px solid var(--tone-a7c99a);outline-offset:3px}
+.planner-heading .heading-title-row{justify-content:flex-start}
+.plan-date-field{display:flex;flex-direction:column;align-items:flex-start;gap:3px;min-width:0}
+.plan-date-field>span{font-size:14px;font-weight:500;color:var(--tone-7f9470)}
+.plan-date-field .date-picker{padding:7px 8px}
+.plan-date-field .date-picker input{width:132px;min-height:0;padding:0}
+.plan-food-line{display:grid;grid-template-columns:minmax(0,1fr) 88px auto;gap:8px;align-items:center}
+.plan-food-line .chosen-product{border:0;background:none;padding:0;min-width:0;gap:7px}
+.plan-food-line .chosen-product>span{font-size:14px}
+.plan-food-line .chosen-product small{display:block;font-size:12px}
+.plan-food-line .text-btn{font-size:12px;flex-shrink:0}
+.plan-food-line .plan-grams{font-size:12px;text-align:right}
+.plan-grams input{text-align:right;font-variant-numeric:tabular-nums}
+.plan-draft.selected-food{padding:8px 10px}
+@media(max-width:480px){
+ .plan-fields>.form-grid{grid-template-columns:1fr}
+ .plan-food-line{grid-template-columns:minmax(0,1fr) 76px auto;gap:6px}
+ .plan-food-line .chosen-product{flex-wrap:wrap}
+ .plan-food-line .chosen-product>svg{display:none}
+ .plan-food-line .chosen-product>span{flex-basis:100%}
+ .planner-heading .heading-title-row{justify-content:flex-start;gap:14px}
+ .planner-range-picker>span{font-size:12px}
+ .planner-date-controls .planner-range-picker{padding:9px 7px;gap:6px}
+}
+.planner-shopping-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.shopping-results{margin-top:18px}
+.shopping-results .panel-heading{align-items:flex-start;gap:12px}
+.shopping-results .panel-heading>.icon-btn{flex-shrink:0}
+.shopping-lists{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:0 20px 20px}
+.shopping-lists.overall,.shopping-lists.single{grid-template-columns:minmax(0,1fr)}
+.shopping-list{border:1px solid var(--line);border-radius:9px;padding:14px;min-width:0}
+.shopping-list h3{font-size:15px;font-weight:600;margin-bottom:12px}
+.shopping-products{list-style:none;margin:0;padding:0}
+.shopping-products li{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px}
+.shopping-products li:last-child{border-bottom:0}
+.shopping-products li>span{min-width:0;overflow-wrap:anywhere}
+.shopping-products small{display:block;font-size:12px;color:var(--muted)}
+.shopping-products strong{white-space:nowrap;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.shopping-empty{font-size:14px;color:var(--muted)}
+.shopping-notes{border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+.shopping-notes h4{margin:0 0 8px;font-size:14px;font-weight:500}
+.shopping-notes ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.shopping-notes small{font-size:12px;color:var(--muted)}
+.shopping-notes p{font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:760px){
+ .planner-shopping-actions>.btn{width:100%;white-space:normal}
+ .shopping-lists{grid-template-columns:minmax(0,1fr);padding:0 14px 14px}
+}
