@@ -9,9 +9,10 @@ export function plannedPortion(item:PlanItem|undefined,product:Product,grams:num
   const values=item?.kind==='food'&&item.productId===product.id?Object.fromEntries(macroKeys.map(k=>[k,item[k]*100/item.grams!])) as Macros:product;
   return portion(values,grams);
 }
-export function plannedDayTotals(plans:PlanItem[],profileId:string,date:string,itemId?:string,preview?:Macros|null):{saved:Macros;after:Macros} {
+export function plannedDayTotals(plans:PlanItem[],profileId:string,date:string,itemId?:string|string[],preview?:Macros|null):{saved:Macros;after:Macros} {
   const foods=plans.filter(p=>p.profileId===profileId&&p.date===date&&p.kind==='food');
-  return {saved:sumMacros(foods),after:sumMacros([...foods.filter(p=>p.id!==itemId),...(preview?[preview]:[])])};
+  const excluded=new Set(Array.isArray(itemId)?itemId:itemId?[itemId]:[]);
+  return {saved:sumMacros(foods),after:sumMacros([...foods.filter(p=>!excluded.has(p.id)),...(preview?[preview]:[])])};
 }
 export type ShoppingItem={productId:string;name:string;manufacturer:string;grams:number};
 export type ShoppingList={start:string;end:string;items:ShoppingItem[];notes:{id:string;date:string;meal:string;note:string}[]};

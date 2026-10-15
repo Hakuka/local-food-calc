@@ -29,7 +29,7 @@ function validate(input){
  const id=()=>text('id',100,true);
  const revision=(required=false)=>{if(required||a.revision!==undefined){num('revision',1,Number.MAX_SAFE_INTEGER);if(!Number.isInteger(a.revision))throw new AppError('Nieprawidłowa wersja wpisu.');}};
  const profile=()=>{if(!['janusz','grazyna'].includes(a.profileId))throw new AppError('Nieprawidłowy profil.');};
- const date=()=>{text('date',10,true);const d=new Date(a.date+'T12:00:00Z');if(!/^\d{4}-\d{2}-\d{2}$/.test(a.date)||!Number.isFinite(d.getTime())||d.toISOString().slice(0,10)!==a.date)throw new AppError('Nieprawidłowa data.');};
+ const date=(key='date')=>{text(key,10,true);const d=new Date(a[key]+'T12:00:00Z');if(!/^\d{4}-\d{2}-\d{2}$/.test(a[key])||!Number.isFinite(d.getTime())||d.toISOString().slice(0,10)!==a[key])throw new AppError('Nieprawidłowa data.');};
  const macros=()=>{for(const k of macroKeys)num(k,0,k==='kcal'?100000:10000);};
  const mealNote=()=>{
   if(a.mealNote===undefined)return;
@@ -66,6 +66,16 @@ function validate(input){
    mealNote();
    break;
   case 'deletePlan':id();profile();revision(true);break;
+  case 'planMealEdit':
+   profile();date();date('originalDate');mealNote();
+   if(a.mealNote===undefined)throw new AppError('Podaj notatkę posiłku.');
+   if(!meals.includes(a.meal)||!meals.includes(a.originalMeal))throw new AppError('Nieprawidłowy posiłek.');
+   if(a.originalNoteRevision!==undefined&&(!Number.isSafeInteger(a.originalNoteRevision)||a.originalNoteRevision<1))throw new AppError('Nieprawidłowa wersja notatki.');
+   if(!Array.isArray(a.originals)||!a.originals.length||a.originals.length>1000||!Array.isArray(a.items)||a.items.length>1000)throw new AppError('Nieprawidłowe pozycje posiłku.');
+   a.originals=a.originals.map(item=>validate({...item,action:'deletePlan',profileId:a.profileId}));
+   a.items=a.items.map(item=>validate({...item,action:'plan',profileId:a.profileId,date:a.date,meal:a.meal}));
+   if(new Set(a.originals.map(item=>item.id)).size!==a.originals.length||new Set(a.items.map(item=>item.id)).size!==a.items.length)throw new AppError('Pozycje planu muszą mieć różne identyfikatory.');
+   break;
   case 'planBatch':
    profile();date();
    mealNote();
@@ -149,6 +159,23 @@ export function openStore(dataDir=process.env.DATA_DIR||resolve(root,'data')){
  }
  function mutate(input){const a=validate(input);return transaction(()=>{
   let result;
+  if(a.action==='planMealEdit'){
+   const conflict=()=>{throw new AppError('Posiłek zmienił się na innym urządzeniu. Odśwież widok i spróbuj ponownie.',409);};
+   const current=db.prepare('SELECT id,revision FROM plans WHERE profileId=? AND date=? AND meal=?').all(a.profileId,a.originalDate,a.originalMeal);
+   if(current.length!==a.originals.length||current.some(p=>!a.originals.some(old=>old.id===p.id&&old.revision===p.revision)))conflict();
+   const sourceNote=db.prepare('SELECT * FROM plan_meal_notes WHERE profileId=? AND date=? AND meal=?').get(a.profileId,a.originalDate,a.originalMeal);
+   if(sourceNote?.revision!==a.originalNoteRevision)conflict();
+   for(const item of a.items){
+    const old=current.find(p=>p.id===item.id);
+    if(old?item.revision!==old.revision:item.revision!==undefined||db.prepare('SELECT id FROM plans WHERE id=?').get(item.id))conflict();
+    if(!savePlan(item).changes)conflict();
+   }
+   for(const old of current)if(!a.items.some(item=>item.id===old.id))db.prepare('DELETE FROM plans WHERE id=? AND profileId=? AND revision=?').run(old.id,a.profileId,old.revision);
+   if(a.mealNote)saveMealNote(a);
+   const moved=a.date!==a.originalDate||a.meal!==a.originalMeal;
+   if(moved&&sourceNote?.note)saveMealNote({profileId:a.profileId,date:a.originalDate,meal:a.originalMeal,mealNote:{note:'',revision:sourceNote.revision}});
+   return {ok:true};
+  }
   if(a.action==='planBatch'){
    for(const item of a.items){
     if(db.prepare('SELECT id FROM plans WHERE id=?').get(item.id))throw new AppError('Ta pozycja planu już istnieje.',409);

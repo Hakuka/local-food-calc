@@ -1,5 +1,5 @@
 import {useId,useState,type FormEvent} from 'react';
-import {CalendarDays,ChevronLeft,ChevronRight,Package,Plus,Search,ShoppingBasket,StickyNote,Trash2,X} from 'lucide-react';
+import {CalendarDays,ChevronLeft,ChevronRight,Package,Pencil,Plus,Search,ShoppingBasket,StickyNote,Trash2,X} from 'lucide-react';
 import {type PlanItem,type PlanMealNote,type Product,macroKeys,macroLabels,meals} from '../lib/types';
 import {dateLabel,navigatePlanner,plannerDates,plannedDayTotals,plannedPortion,shiftDate,shoppingLists,sumMacros,today,type PlannerRange,type ShoppingList} from '../lib/calculations';
 import {createId} from '../lib/id';
@@ -29,16 +29,18 @@ export function Planner({plans,products=[],mealNotes=[],add,edit,editMealNote}:{
    <div className="planner-grid">{dates.map(day=>{
     const items=plans.filter(item=>item.date===day);
     const notes=mealNotes.filter(note=>note.date===day&&note.note);
+    const totals=sumMacros(items.filter(item=>item.kind==='food'));
+    const groups=meals.map(meal=>({meal,items:items.filter(item=>item.meal===meal),note:notes.find(note=>note.meal===meal)})).filter(group=>group.items.length||group.note);
     return <section key={day} className={'planner-day'+(day===current?' is-today':'')} aria-label={dateLabel(day)}>
-     <header><time dateTime={day} aria-current={day===current?'date':undefined}>{dateLabel(day,{day:'numeric',month:'short'})}</time>{day===current&&<small>Dziś</small>}</header>
+     <header><div className="planner-day-date"><time dateTime={day} aria-current={day===current?'date':undefined}>{dateLabel(day,{day:'numeric',month:'short'})}</time>{day===current&&<small>Dziś</small>}</div><span className="planner-day-macros" aria-label={'Plan dnia: '+number(totals.kcal,0)+' kcal, białko '+number(totals.protein,0)+' g, tłuszcze '+number(totals.fat,0)+' g, węglowodany '+number(totals.carbs,0)+' g'}>{number(totals.kcal,0)}kcal / B:{number(totals.protein,0)} / T:{number(totals.fat,0)} / W:{number(totals.carbs,0)}</span></header>
      <button type="button" className="planner-add" onClick={()=>add(day)} aria-label={'Dodaj do planu na '+dateLabel(day)}><Plus size={15}/>Dodaj pozycję</button>
-     <ul className="planner-items">{items.map(item=><li key={item.id}><button type="button" className={'planner-item '+item.kind} onClick={()=>edit(item)} aria-label={'Edytuj plan: '+planName(item)}>{item.kind==='note'?<StickyNote size={14}/>:<Package size={14}/>}<span>{item.meal!=='Bez kategorii'&&<small>{item.meal}</small>}<span className="planner-item-name">{planName(item)}</span>{item.kind==='food'&&<small>{number(item.grams!)} g</small>}</span></button></li>)}{notes.map(note=><li key={note.id}><button type="button" className="planner-item note" onClick={()=>editMealNote?.(note)} aria-label={'Edytuj notatkę posiłku: '+note.meal}><StickyNote size={14}/><span><small>{note.meal}</small><span className="planner-item-name">{note.note}</span></span></button></li>)}</ul>
+     <ul className="planner-items">{groups.map(group=><li key={group.meal}><button type="button" className={'planner-item planner-meal '+(group.items.some(item=>item.kind==='food')?'food':'note')} onClick={()=>group.items.length?edit(group.items[0]):group.note&&editMealNote?.(group.note)} aria-label={'Edytuj posiłek: '+group.meal}><span className="planner-meal-heading"><strong>{group.meal}</strong><Pencil size={12}/></span>{group.items.map(item=><span className="planner-meal-entry" key={item.id}>{item.kind==='note'?<StickyNote size={13}/>:<Package size={13}/>}<span className="planner-item-name">{planName(item)}{item.kind==='food'&&<small>{number(item.grams!)} g</small>}</span></span>)}{group.note&&<span className="planner-meal-note"><StickyNote size={13}/><span className="planner-item-name">{group.note.note}</span></span>}</button></li>)}</ul>
     </section>;
    })}</div>
   </div></div>
   <div className="planner-shopping-actions"><button type="button" className="btn primary" aria-expanded={shoppingMode==='weekly'} aria-controls={shoppingMode==='weekly'?'planner-shopping-results':undefined} onClick={()=>setShoppingMode('weekly')}><ShoppingBasket size={18}/>Wygeneruj tygodniową listę zakupów</button><button type="button" className="btn secondary" aria-expanded={shoppingMode==='overall'} aria-controls={shoppingMode==='overall'?'planner-shopping-results':undefined} onClick={()=>setShoppingMode('overall')}><ShoppingBasket size={18}/>Ogólna lista zakupów</button></div>
   {shoppingMode&&<ShoppingResults mode={shoppingMode} lists={shoppingLists(plans,products,dates,shoppingMode,mealNotes)} close={()=>setShoppingMode(null)}/>}
-  <div className="info-line"><CalendarDays size={17}/>Planowane posiłki i notatki nie są wliczane do dziennika ani podsumowań. Wartości odżywcze zobaczysz podczas edycji planu.</div>
+  <div className="info-line"><CalendarDays size={17}/>Przy dacie widzisz sumę kcal i makroskładników zaplanowanych na dzień. Planowane posiłki i notatki nie są wliczane do dziennika ani podsumowań.</div>
  </section>;
 }
 
@@ -64,35 +66,40 @@ function PlanDraftRow({row,index,products,busy,change,remove}:{row:PlanDraft;ind
 }
 
 export function PlanForm({item,product,products,plans,mealNotes=[],profileId,date,busy,submit,close,remove}:{item?:PlanItem;product?:Product;products:Product[];plans:PlanItem[];mealNotes?:PlanMealNote[];profileId:string;date:string;busy:boolean;submit:(payload:unknown)=>Promise<boolean>;close:()=>void;remove:(item:PlanItem)=>void}){
- const [rows,setRows]=useState<PlanDraft[]>(()=>[{id:item?.id||createId(),kind:item?.kind||'food',productId:product?.id||item?.productId||'',grams:item?.grams!=null?String(item.grams):'100',note:item?.note||''}]);
+ const [originals]=useState(()=>item?plans.filter(p=>p.profileId===item.profileId&&p.date===item.date&&p.meal===item.meal):[]);
+ const [rows,setRows]=useState<PlanDraft[]>(()=>item?originals.map(p=>({id:p.id,kind:p.kind,productId:p.productId||'',grams:p.grams!=null?String(p.grams):'100',note:p.note})):[{...emptyDraft(),productId:product?.id||''}]);
  const [day,setDay]=useState(item?.date||date);const [meal,setMeal]=useState(item?.meal||'Bez kategorii');const [alsoOther,setAlsoOther]=useState(false);const [error,setError]=useState('');
  const [noteDrafts,setNoteDrafts]=useState<Record<string,string>>({});
  const noteKey=day+'|'+meal;const mealNote=mealNotes.find(n=>n.profileId===profileId&&n.date===day&&n.meal===meal);
- const sharedNote=noteDrafts[noteKey]??mealNote?.note??'';
+ const originalNote=item?mealNotes.find(n=>n.profileId===profileId&&n.date===item.date&&n.meal===item.meal):undefined;
+ const moved=!!item&&(day!==item.date||meal!==item.meal);
+ const sourceNote=item?noteDrafts[item.date+'|'+item.meal]??originalNote?.note:undefined;
+ const sharedNote=noteDrafts[noteKey]??(moved?[...new Set([mealNote?.note,sourceNote].filter(Boolean))].join('\n'):mealNote?.note??'');
  const portions=rows.flatMap(row=>{
   const chosen=products.find(p=>p.id===row.productId);
-  return row.kind==='food'&&chosen&&validDraft(row)?[plannedPortion(item,chosen,Number(row.grams))]:[];
+  return row.kind==='food'&&chosen&&validDraft(row)?[plannedPortion(originals.find(p=>p.id===row.id),chosen,Number(row.grams))]:[];
  });
  const preview=portions.length?sumMacros(portions):null;
- const {saved,after}=plannedDayTotals(plans,profileId,day,item?.id,preview);
- const valid=rows.length>0&&rows.every(row=>validDraft(row)&&(row.kind==='note'||products.some(p=>p.id===row.productId)));
+ const {saved,after}=plannedDayTotals(plans,profileId,day,originals.map(p=>p.id),preview);
+ const valid=(!!item||rows.length>0)&&rows.every(row=>validDraft(row)&&(row.kind==='note'||products.some(p=>p.id===row.productId)));
  async function save(e:FormEvent){
   e.preventDefault();setError('');
   if(!valid){setError('Uzupełnij każdą pozycję: wybierz jedzenie i gramaturę lub wpisz notatkę.');return;}
-  const items=rows.map(row=>({id:row.id,kind:row.kind,productId:row.kind==='food'?row.productId:null,grams:row.kind==='food'?Number(row.grams):null,note:row.kind==='food'?'':row.note}));
-  const shared=noteDrafts[noteKey]!==undefined||(!item&&alsoOther&&sharedNote.trim())?{mealNote:{note:sharedNote,revision:mealNote?.revision}}:{};
-  const payload=item?{...items[0],action:'plan',revision:item.revision,profileId,date:day,meal,...shared}:{action:'planBatch',profileId,date:day,meal,alsoOther,items,...shared};
+  const items=rows.map(row=>({id:row.id,revision:originals.find(p=>p.id===row.id)?.revision,kind:row.kind,productId:row.kind==='food'?row.productId:null,grams:row.kind==='food'?Number(row.grams):null,note:row.kind==='food'?'':row.note}));
+  const shared=item||noteDrafts[noteKey]!==undefined||(!item&&alsoOther&&sharedNote.trim())?{mealNote:{note:sharedNote,revision:mealNote?.revision}}:{};
+  const payload=item?{action:'planMealEdit',profileId,date:day,meal,originalDate:item.date,originalMeal:item.meal,originalNoteRevision:originalNote?.revision,originals:originals.map(p=>({id:p.id,revision:p.revision})),items,...shared}:{action:'planBatch',profileId,date:day,meal,alsoOther,items,...shared};
   if(await submit(payload))close();
  }
  return <form className="plan-form" onSubmit={save}>
   <fieldset className="plan-fields" disabled={busy}><div className="form-grid"><div className="plan-date-field"><span>Dzień</span><PlannerDateControls date={day} label="Dzień planowanego posiłku" required busy={busy} change={setDay} previous={()=>setDay(shiftDate(day,-1))} next={()=>setDay(shiftDate(day,1))}/></div><label>Posiłek<select value={meal} onChange={e=>setMeal(e.target.value)}>{meals.map(m=><option key={m}>{m}</option>)}</select></label></div></fieldset>
-  <div className="plan-drafts">{rows.map((row,index)=><PlanDraftRow key={row.id} row={row} index={index} products={products} busy={busy} change={next=>{setRows(current=>current.map(r=>r.id===row.id?next:r));setError('');}} remove={!item&&rows.length>1?()=>setRows(current=>current.filter(r=>r.id!==row.id)):undefined}/>)}</div>
-  {!item&&<button type="button" className="btn secondary plan-add-row" disabled={busy||rows.length>=100} onClick={()=>setRows(current=>[...current,emptyDraft()])}><Plus size={16}/>Dodaj kolejną pozycję</button>}
+  <div className="plan-drafts">{rows.map((row,index)=><PlanDraftRow key={row.id} row={row} index={index} products={products} busy={busy} change={next=>{setRows(current=>current.map(r=>r.id===row.id?next:r));setError('');}} remove={item||rows.length>1?()=>setRows(current=>current.filter(r=>r.id!==row.id)):undefined}/>)}</div>
+  {!!item&&!rows.length&&<p className="form-hint">Po zapisaniu wszystkie pozycje tego posiłku zostaną usunięte.</p>}
+  <button type="button" className="btn secondary plan-add-row" disabled={busy||rows.length>=(item?1000:100)} onClick={()=>setRows(current=>[...current,emptyDraft()])}><Plus size={16}/>Dodaj kolejną pozycję</button>
   <label>Notatka do posiłku<textarea maxLength={4000} rows={2} disabled={busy} value={sharedNote} onChange={e=>setNoteDrafts(current=>({...current,[noteKey]:e.target.value}))} placeholder="Jedna wspólna notatka do tego posiłku"/></label>
   {!item&&<label className="plan-copy-toggle"><input type="checkbox" role="switch" checked={alsoOther} disabled={busy} onChange={e=>setAlsoOther(e.target.checked)}/><span><strong>Dodaj również drugiej osobie</strong><small>Jednorazowa kopia. Późniejsze zmiany w każdym planie są niezależne.</small></span></label>}
   {error&&<p className="inline-error" role="alert">{error}</p>}
-  <section className="plan-totals" aria-label="Wartości zaplanowane na dzień" aria-live="polite"><h3>Wartości zaplanowane na ten dzień</h3><div className="plan-totals-scroll"><table><thead><tr><th>Plan</th>{macroKeys.map(k=><th key={k}>{macroLabels[k]}</th>)}</tr></thead><tbody><tr><th>Już zapisane</th>{macroKeys.map(k=><td key={k}>{number(saved[k],k==='kcal'?0:1)} {k==='kcal'?'kcal':'g'}</td>)}</tr>{preview&&<tr><th>{item?'Ta porcja':'Dodawane pozycje'}</th>{macroKeys.map(k=><td key={k}>{number(preview[k],k==='kcal'?0:1)} {k==='kcal'?'kcal':'g'}</td>)}</tr>}<tr className="plan-after"><th>Po zapisaniu</th>{macroKeys.map(k=><td key={k}>{number(after[k],k==='kcal'?0:1)} {k==='kcal'?'kcal':'g'}</td>)}</tr></tbody></table></div><p className="form-hint">Notatki nie mają wartości odżywczych.{item?' Podgląd zastępuje edytowaną pozycję nowymi wartościami.':''}</p></section>
-  <footer className="form-actions">{item&&<button type="button" className="icon-btn danger plan-remove" aria-label="Usuń pozycję planu" disabled={busy} onClick={()=>remove(item)}><Trash2 size={18}/></button>}<button type="button" className="btn secondary" disabled={busy} onClick={close}>Anuluj</button><button className="btn primary" disabled={busy||!valid}>{busy?'Zapisywanie…':'Zapisz plan'}</button></footer>
+  <section className="plan-totals" aria-label="Wartości zaplanowane na dzień" aria-live="polite"><h3>Wartości zaplanowane na ten dzień</h3><div className="plan-totals-scroll"><table><thead><tr><th>Plan</th>{macroKeys.map(k=><th key={k}>{macroLabels[k]}</th>)}</tr></thead><tbody><tr><th>Już zapisane</th>{macroKeys.map(k=><td key={k}>{number(saved[k],k==='kcal'?0:1)} {k==='kcal'?'kcal':'g'}</td>)}</tr>{preview&&<tr><th>{item?'Edytowany posiłek':'Dodawane pozycje'}</th>{macroKeys.map(k=><td key={k}>{number(preview[k],k==='kcal'?0:1)} {k==='kcal'?'kcal':'g'}</td>)}</tr>}<tr className="plan-after"><th>Po zapisaniu</th>{macroKeys.map(k=><td key={k}>{number(after[k],k==='kcal'?0:1)} {k==='kcal'?'kcal':'g'}</td>)}</tr></tbody></table></div><p className="form-hint">Notatki nie mają wartości odżywczych.{item?' Podgląd zastępuje cały edytowany posiłek nowymi wartościami.':''}</p></section>
+  <footer className="form-actions">{item&&originals.length===1&&rows.length===1&&rows[0].id===item.id&&<button type="button" className="icon-btn danger plan-remove" aria-label="Usuń pozycję planu" disabled={busy} onClick={()=>remove(item)}><Trash2 size={18}/></button>}<button type="button" className="btn secondary" disabled={busy} onClick={close}>Anuluj</button><button className="btn primary" disabled={busy||!valid}>{busy?'Zapisywanie…':item&&!rows.length?'Usuń pozycje posiłku':'Zapisz plan'}</button></footer>
  </form>;
 }
 

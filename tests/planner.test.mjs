@@ -26,6 +26,99 @@ const plan={action:'plan',id:'planned-food',profileId:'janusz',date:'2026-10-19'
 const note={...plan,id:'planned-note',kind:'note',productId:null,grams:null,note:'Zamawiamy pizzę'};
 const dir=()=>mkdtempSync(join(tmpdir(),'diet-planner-test-'));
 
+function mealEdit(data,changes={}){
+ const originals=data.plans.filter(p=>p.profileId==='janusz'&&p.date===plan.date&&p.meal===plan.meal);
+ const mealNote=data.planMealNotes.find(n=>n.profileId==='janusz'&&n.date===plan.date&&n.meal===plan.meal);
+ return {action:'planMealEdit',profileId:'janusz',date:plan.date,meal:plan.meal,originalDate:plan.date,originalMeal:plan.meal,originalNoteRevision:mealNote?.revision,originals:originals.map(p=>({id:p.id,revision:p.revision})),items:originals,mealNote:{note:mealNote?.note||'',revision:mealNote?.revision},...changes};
+}
+
+test('Meal editing updates, adds and removes rows atomically, retaining each nutritional snapshot',()=>{
+ const folder=dir();let s=openStore(folder);
+ try{
+  s.mutate(product);s.mutate({...plan,id:'first'});
+  s.mutate({...product,revision:1,kcal:200});
+  s.mutate({...plan,id:'second',grams:50});s.mutate({...note,id:'text'});
+  s.mutate({...plan,id:'other-meal',meal:'Kolacja',grams:70});
+  s.mutate({...plan,id:'partner',profileId:'grazyna'});
+  const before=s.read(),originals=mealEdit(before).items;
+  const items=originals.filter(p=>p.kind==='food').map(p=>({...p,grams:100}));
+  items.push({...note,id:'new-text',note:'Nowa pozycja'});
+  s.mutate(mealEdit(before,{items}));
+  const saved=s.read();
+  assert.equal(saved.plans.find(p=>p.id==='first').kcal,100);
+  assert.equal(saved.plans.find(p=>p.id==='second').kcal,200);
+  assert.equal(saved.plans.some(p=>p.id==='text'),false);
+  assert.equal(saved.plans.find(p=>p.id==='new-text').note,'Nowa pozycja');
+  for(const id of ['other-meal','partner'])assert.deepEqual(saved.plans.find(p=>p.id===id),before.plans.find(p=>p.id===id));
+  assert.deepEqual(saved.entries,before.entries);assert.deepEqual(saved.logs,before.logs);
+  const preview=sumMacros(items.filter(p=>p.kind==='food').map(p=>plannedPortion(originals.find(old=>old.id===p.id),saved.products.find(product=>product.id===p.productId),p.grams)));
+  const totals=plannedDayTotals(before.plans,'janusz',plan.date,originals.map(p=>p.id),preview);
+  assert.equal(totals.after.kcal,440);assert.equal(totals.saved.kcal,390);
+  assert.equal(plannedDayTotals(before.plans,'janusz',plan.date,originals.map(p=>p.id),null).after.kcal,140);
+  s.close();s=openStore(folder);assert.deepEqual(s.read(),saved);
+  s.mutate(mealEdit(saved,{items:[]}));assert.equal(s.read().plans.filter(p=>p.profileId==='janusz'&&p.meal==='Obiad').length,0);
+ }finally{s.close();rmSync(folder,{recursive:true,force:true});}
+});
+
+test('Meal edits reject stale rows, new concurrent rows, invalid foods and cross-profile IDs without partial saves',()=>{
+ const folder=dir();const s=openStore(folder);
+ try{
+  s.mutate(product);s.mutate(plan);s.mutate({...plan,id:'second'});s.mutate({...plan,id:'partner',profileId:'grazyna'});
+  let data=s.read(),edit=mealEdit(data);
+  for(const changes of [{items:[{...edit.items[0],grams:300},{...plan,id:'bad',productId:'missing'}]},{items:[{...edit.items[0],grams:300},{...edit.items[1],revision:999}]},{items:[{...edit.items[0],id:'partner',revision:1}]},{originals:[edit.originals[0]]}]){
+   assert.throws(()=>s.mutate({...edit,...changes}),e=>[404,409].includes(e.status));assert.deepEqual(s.read(),data);
+  }
+  for(const changes of [{items:[null]},{items:[edit.items[0],edit.items[0]]},{originalDate:'2026-02-30'},{meal:'Invalid'},{originalNoteRevision:0},{mealNote:undefined}]){
+   assert.throws(()=>s.mutate({...edit,...changes}),e=>e.status===400);assert.deepEqual(s.read(),data);
+  }
+  s.mutate({...plan,id:'concurrent'});data=s.read();
+  assert.throws(()=>s.mutate(edit),e=>e.status===409);assert.deepEqual(s.read(),data);
+  edit=mealEdit(data);s.mutate({...data.plans.find(p=>p.id==='second'),action:'plan',grams:999});data=s.read();
+  assert.throws(()=>s.mutate(edit),e=>e.status===409);assert.deepEqual(s.read(),data);
+  edit=mealEdit(data);s.mutate({action:'planMealNote',profileId:'janusz',date:plan.date,meal:plan.meal,mealNote:{note:'Nowa notatka'}});data=s.read();
+  assert.throws(()=>s.mutate(edit),e=>e.status===409);assert.deepEqual(s.read(),data);
+  edit=mealEdit(data);s.mutate({action:'planMealNote',profileId:'janusz',date:plan.date,meal:plan.meal,mealNote:{note:'Kolejna wersja',revision:1}});data=s.read();
+  assert.throws(()=>s.mutate(edit),e=>e.status===409);assert.deepEqual(s.read(),data);
+ }finally{s.close();rmSync(folder,{recursive:true,force:true});}
+});
+
+test('Moving a meal moves every row and its shared note, preserving the destination meal',()=>{
+ const folder=dir();const s=openStore(folder);
+ try{
+  s.mutate(product);s.mutate({action:'planBatch',profileId:'janusz',date:plan.date,meal:plan.meal,items:[plan,note],mealNote:{note:'Źródło'}});
+  s.mutate({...plan,id:'destination',date:'2026-10-20',meal:'Kolacja'});
+  s.mutate({action:'planMealNote',profileId:'janusz',date:'2026-10-20',meal:'Kolacja',mealNote:{note:'Cel'}});
+  const before=s.read(),destination=before.planMealNotes.find(n=>n.date==='2026-10-20');
+  const edit=mealEdit(before,{date:'2026-10-20',meal:'Kolacja',mealNote:{note:'Cel\nŹródło',revision:destination.revision}});
+  s.mutate({...before.plans.find(p=>p.id===plan.id),action:'plan',grams:200});
+  assert.throws(()=>s.mutate(edit),e=>e.status===409);
+  const current=s.read();
+  s.mutate(mealEdit(current,{date:edit.date,meal:edit.meal,mealNote:edit.mealNote}));
+  const saved=s.read();assert.ok(saved.plans.every(p=>p.date==='2026-10-20'&&p.meal==='Kolacja'));
+  assert.equal(saved.planMealNotes.find(n=>n.date===plan.date).note,'');
+  assert.equal(saved.planMealNotes.find(n=>n.date===edit.date).note,'Cel\nŹródło');
+  assert.deepEqual(saved.plans.find(p=>p.id==='destination'),before.plans.find(p=>p.id==='destination'));
+ }finally{s.close();rmSync(folder,{recursive:true,force:true});}
+});
+
+test('Calendar totals exclude notes and other days, while grouped editing loads only the chosen profile and meal',()=>{
+ const folder=dir();const s=openStore(folder);
+ try{
+  s.mutate(product);
+  s.mutate({action:'planBatch',profileId:'janusz',date:today(),meal:'Obiad',items:[plan,{...plan,id:'second',grams:250},note],mealNote:{note:'Wspólna uwaga'}});
+  s.mutate({...plan,id:'partner',date:today(),profileId:'grazyna',grams:999});
+  s.mutate({...plan,id:'tomorrow',date:'2027-01-01',grams:999});
+  const data=s.read(),calendar=renderToStaticMarkup(createElement(Planner,{plans:data.plans.filter(p=>p.profileId==='janusz'),mealNotes:data.planMealNotes,add:()=>{},edit:()=>{}}));
+  assert.equal((calendar.match(/aria-label="Edytuj posiłek: Obiad"/g)||[]).length,1);
+  assert.match(calendar,/400kcal \/ B:40 \/ T:12 \/ W:48<\/span>/);
+  assert.equal((calendar.match(/Wspólna uwaga/g)||[]).length,1);
+  const form=renderToStaticMarkup(createElement(PlanForm,{item:data.plans.find(p=>p.id===plan.id),products:data.products,plans:data.plans,mealNotes:data.planMealNotes,profileId:'janusz',date:today(),busy:false,submit:async()=>true,close:()=>{},remove:()=>{}}));
+  assert.equal((form.match(/class="plan-draft/g)||[]).length,4); // wrapper plus three rows
+  assert.match(form,/value="150"/);assert.match(form,/value="250"/);assert.doesNotMatch(form,/value="999"/);
+  assert.equal((form.match(/400 kcal/g)||[]).length,3);
+ }finally{s.close();rmSync(folder,{recursive:true,force:true});}
+});
+
 test('New planner forms render over HTTP when crypto.randomUUID is unavailable',t=>{
  const native=globalThis.crypto;
  t.mock.getter(globalThis,'crypto',()=>({getRandomValues:native.getRandomValues.bind(native)}));
@@ -142,14 +235,15 @@ test('Planner validation, archiving and concurrent edits protect saved plans',()
  }finally{s.close();rmSync(folder,{recursive:true,force:true});}
 });
 
-test('Calendar displays plans without nutritional totals; editor displays saved and replacement totals',()=>{
+test('Calendar groups meals and displays daily totals; editor replaces the whole meal',()=>{
  const folder=dir();const s=openStore(folder);
  try{
   s.mutate(product);s.mutate({...plan,date:today()});s.mutate({...note,date:today()});const d=s.read();
   const calendar=renderToStaticMarkup(createElement(Planner,{plans:d.plans,add:()=>{},edit:()=>{}}));
   assert.match(calendar,/Ryż do planu/);assert.match(calendar,/Zamawiamy pizzę/);assert.match(calendar,/150 g/);
-  assert.doesNotMatch(calendar,/150 kcal/);assert.match(calendar,/aria-pressed="true">Miesiąc/);
-  assert.equal((calendar.match(/class="planner-day/g)||[]).length,plannerDates(today(),'month').length);
+  assert.match(calendar,/150kcal \/ B:15 \/ T:5 \/ W:18<\/span>/);assert.match(calendar,/aria-pressed="true">Miesiąc/);
+  assert.equal((calendar.match(/class="planner-day(?: is-today)?"/g)||[]).length,plannerDates(today(),'month').length);
+  assert.equal((calendar.match(/aria-label="Edytuj posiłek: Obiad"/g)||[]).length,1);
   const firstDay=calendar.slice(calendar.indexOf('class="planner-day'));
   assert.ok(firstDay.indexOf('<header>')<firstDay.indexOf('class="planner-add"'));
   assert.ok(firstDay.indexOf('class="planner-add"')<firstDay.indexOf('class="planner-items"'));
@@ -161,7 +255,8 @@ test('Calendar displays plans without nutritional totals; editor displays saved 
   assert.match(calendar,/class="btn secondary planner-current-week"/);
   assert.match(calendar,/Wygeneruj tygodniową listę zakupów/);assert.match(calendar,/Ogólna lista zakupów/);
   const form=renderToStaticMarkup(createElement(PlanForm,{item:d.plans.find(p=>p.id===plan.id),products:d.products,plans:d.plans,profileId:'janusz',date:today(),busy:false,submit:async()=>true,close:()=>{},remove:()=>{}}));
-  assert.match(form,/Już zapisane/);assert.match(form,/Ta porcja/);assert.match(form,/Po zapisaniu/);
+  assert.match(form,/Już zapisane/);assert.match(form,/Edytowany posiłek/);assert.match(form,/Po zapisaniu/);
+  assert.match(form,/Zamawiamy pizzę/);assert.match(form,/Dodaj kolejną pozycję/);
   assert.equal((form.match(/150 kcal/g)||[]).length,3);
   assert.doesNotMatch(form,/Planujesz posiłki na/);assert.doesNotMatch(form,/Dodaj również drugiej osobie/);
   const adding=renderToStaticMarkup(createElement(PlanForm,{product:d.products.find(p=>p.id===product.id),products:d.products,plans:[...d.plans,{...d.plans[0],id:'partner',profileId:'grazyna',kcal:9876}],profileId:'janusz',date:today(),busy:false,submit:async()=>true,close:()=>{},remove:()=>{}}));

@@ -171,12 +171,26 @@ label>span,.macro-field-label>span{color:var(--muted)}
 .planner-day.is-today{box-shadow:inset 0 3px 0 var(--green)}
 .planner-day>header{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:10px;font-size:14px;font-weight:600}
 .planner-day>header small{font-size:11px;color:var(--green)}
+.planner-day{container-type:inline-size}
+.planner-day>header{align-items:center;justify-content:flex-start;gap:6px}
+.planner-day-date{flex-shrink:0;white-space:nowrap}
+.planner-day-date small{display:block}
+.planner-day-macros{flex:1;min-width:0;text-align:center;font-size:clamp(9px,5cqi,11px);line-height:1.45;font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .planner-items{list-style:none;padding:0;margin:0 0 10px;display:flex;flex-direction:column;gap:6px}
 .planner-item{display:flex;align-items:flex-start;gap:5px;width:100%;padding:8px 6px;border:1px solid var(--line);border-radius:7px;background:var(--pale);text-align:left;font-size:13px;line-height:1.5}
 .planner-item>svg{flex-shrink:0;margin-top:3px;color:var(--muted)}
 .planner-item>span{min-width:0}.planner-item-name{white-space:pre-wrap;overflow-wrap:anywhere}
 .planner-item small{display:block;font-size:12px;color:var(--muted);overflow-wrap:anywhere;white-space:pre-wrap}
 .planner-item.note{background:var(--paper);border-style:dashed}
+.planner-meal{flex-direction:column;gap:7px}
+.planner-meal>span{width:100%}
+.planner-meal-heading{display:flex;align-items:center;justify-content:space-between;gap:5px;font-size:12px}
+.planner-meal-heading strong{overflow-wrap:anywhere}
+.planner-meal-heading svg,.planner-meal-entry>svg,.planner-meal-note>svg{flex-shrink:0;margin-top:3px;color:var(--muted)}
+.planner-meal-entry,.planner-meal-note{display:flex;align-items:flex-start;gap:5px}
+.planner-meal-entry+.planner-meal-entry,.planner-meal-note{border-top:1px solid var(--line);padding-top:6px}
+.planner-meal-entry>.planner-item-name,.planner-meal-note>.planner-item-name{min-width:0}
+.planner-meal-note{font-size:12px;color:var(--muted)}
 .planner-item:hover,.planner-add:hover{border-color:var(--green);color:var(--green)}
 .planner-add{display:flex;align-items:center;justify-content:center;gap:5px;margin:0 0 10px;padding:7px;width:100%;border:1px dashed var(--line);border-radius:7px;color:var(--muted);font-size:13px}
 .planner-calendar.week .planner-day{min-height:320px}
