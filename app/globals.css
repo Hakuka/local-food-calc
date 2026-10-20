@@ -270,6 +270,10 @@ label>span,.macro-field-label>span{color:var(--muted)}
 }
 .planner-shopping-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
 .shopping-results{margin-top:18px}
+.diary-table .diary-meal-heading{background:var(--pale)}
+.diary-table .diary-meal-heading th,.diary-table .diary-meal-heading td{font-size:14px;font-weight:600;color:var(--ink);text-transform:none;letter-spacing:0}
+.diary-table tbody+tbody .diary-meal-heading>*{border-top:2px solid var(--line)}
+.diary-meal-preview h3{font-size:15px;margin-bottom:8px}
 .shopping-results .panel-heading{align-items:flex-start;gap:12px}
 .shopping-results .panel-heading>.icon-btn{flex-shrink:0}
 .shopping-lists{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:0 20px 20px}

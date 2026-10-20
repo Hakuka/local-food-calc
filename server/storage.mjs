@@ -55,6 +55,16 @@ function validate(input){
   case 'archive':id();revision(true);if(a.archived!==0&&a.archived!==1)throw new AppError('Nieprawidłowa wartość archiwizacji.');break;
   case 'profile':id();if(!['janusz','grazyna'].includes(a.id))throw new AppError('Nieprawidłowy profil.');revision(true);macros();break;
   case 'entry':id();revision();profile();date();text('productId',100,true);num('grams',Number.MIN_VALUE,100000);text('note');if(!meals.includes(a.meal))throw new AppError('Nieprawidłowy posiłek.');break;
+  case 'entryBatch':
+   profile();date();
+   if(!meals.includes(a.meal))throw new AppError('Nieprawidłowy posiłek.');
+   if(!Array.isArray(a.items)||!a.items.length||a.items.length>100)throw new AppError('Dodaj od 1 do 100 produktów do posiłku.');
+   a.items=a.items.map(item=>{
+    if(!item||typeof item!=='object'||Array.isArray(item)||item.revision!==undefined)throw new AppError('Nieprawidłowy wpis posiłku.');
+    return validate({...item,action:'entry',profileId:a.profileId,date:a.date,meal:a.meal});
+   });
+   if(new Set(a.items.map(item=>item.id)).size!==a.items.length)throw new AppError('Wpisy muszą mieć różne identyfikatory.');
+   break;
   case 'deleteEntry':id();revision(true);break;
   case 'plan':
    id();revision();profile();date();
@@ -157,8 +167,24 @@ export function openStore(dataDir=process.env.DATA_DIR||resolve(root,'data')){
 
   return result;
  }
+ function saveEntry(a){
+  const p=db.prepare('SELECT * FROM products WHERE id=?').get(a.productId);if(!p)throw new AppError('Nie znaleziono produktu.',404);
+  const old=a.revision?db.prepare('SELECT * FROM entries WHERE id=? AND profileId=?').get(a.id,a.profileId):null;
+  if(a.revision&&!old)throw new AppError('Nie znaleziono wpisu.',404);
+  if(p.archived&&old?.productId!==p.id)throw new AppError('Ten produkt jest zarchiwizowany.');
+  const m=old&&old.productId===p.id?portion(Object.fromEntries(macroKeys.map(k=>[k,old[k]*100/old.grams])),a.grams):portion(p,a.grams);
+  const name=old&&old.productId===p.id?old.productName:p.name;
+  return a.revision?db.prepare('UPDATE entries SET date=?,productId=?,productName=?,grams=?,meal=?,note=?,kcal=?,protein=?,carbs=?,fat=?,revision=revision+1 WHERE id=? AND profileId=? AND revision=?').run(a.date,p.id,name,a.grams,a.meal,a.note,m.kcal,m.protein,m.carbs,m.fat,a.id,a.profileId,a.revision):db.prepare('INSERT INTO entries (id,profileId,date,productId,productName,grams,meal,note,kcal,protein,carbs,fat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(a.id,a.profileId,a.date,p.id,name,a.grams,a.meal,a.note,m.kcal,m.protein,m.carbs,m.fat);
+ }
  function mutate(input){const a=validate(input);return transaction(()=>{
   let result;
+  if(a.action==='entryBatch'){
+   for(const item of a.items){
+    if(db.prepare('SELECT id FROM entries WHERE id=?').get(item.id))throw new AppError('Ten wpis już istnieje.',409);
+    saveEntry(item);
+   }
+   return {ok:true};
+  }
   if(a.action==='planMealEdit'){
    const conflict=()=>{throw new AppError('Posiłek zmienił się na innym urządzeniu. Odśwież widok i spróbuj ponownie.',409);};
    const current=db.prepare('SELECT id,revision FROM plans WHERE profileId=? AND date=? AND meal=?').all(a.profileId,a.originalDate,a.originalMeal);
@@ -209,15 +235,8 @@ export function openStore(dataDir=process.env.DATA_DIR||resolve(root,'data')){
    result=a.revision?db.prepare('UPDATE products SET name=?,manufacturer=?,kcal=?,protein=?,carbs=?,fat=?,note=?,kind=?,totalWeight=?,ingredients=?,revision=revision+1 WHERE id=? AND revision=?').run(a.name,a.manufacturer,a.kcal,a.protein,a.carbs,a.fat,a.note,a.kind,a.totalWeight,ingredients,a.id,a.revision):db.prepare('INSERT INTO products (id,name,manufacturer,kcal,protein,carbs,fat,note,kind,totalWeight,ingredients) VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(a.id,a.name,a.manufacturer,a.kcal,a.protein,a.carbs,a.fat,a.note,a.kind,a.totalWeight,ingredients);
   }else if(a.action==='archive')result=db.prepare('UPDATE products SET archived=?,revision=revision+1 WHERE id=? AND revision=?').run(a.archived,a.id,a.revision);
   else if(a.action==='profile')result=db.prepare('UPDATE profiles SET kcal=?,protein=?,carbs=?,fat=?,revision=revision+1 WHERE id=? AND revision=?').run(a.kcal,a.protein,a.carbs,a.fat,a.id,a.revision);
-  else if(a.action==='entry'){
-   const p=db.prepare('SELECT * FROM products WHERE id=?').get(a.productId);if(!p)throw new AppError('Nie znaleziono produktu.',404);
-   const old=a.revision?db.prepare('SELECT * FROM entries WHERE id=? AND profileId=?').get(a.id,a.profileId):null;
-   if(a.revision&&!old)throw new AppError('Nie znaleziono wpisu.',404);
-   if(p.archived&&old?.productId!==p.id)throw new AppError('Ten produkt jest zarchiwizowany.');
-   const m=old&&old.productId===p.id?portion(Object.fromEntries(macroKeys.map(k=>[k,old[k]*100/old.grams])),a.grams):portion(p,a.grams);
-   const name=old&&old.productId===p.id?old.productName:p.name;
-   result=a.revision?db.prepare('UPDATE entries SET date=?,productId=?,productName=?,grams=?,meal=?,note=?,kcal=?,protein=?,carbs=?,fat=?,revision=revision+1 WHERE id=? AND profileId=? AND revision=?').run(a.date,p.id,name,a.grams,a.meal,a.note,m.kcal,m.protein,m.carbs,m.fat,a.id,a.profileId,a.revision):db.prepare('INSERT INTO entries (id,profileId,date,productId,productName,grams,meal,note,kcal,protein,carbs,fat) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)').run(a.id,a.profileId,a.date,p.id,name,a.grams,a.meal,a.note,m.kcal,m.protein,m.carbs,m.fat);
-  }else if(a.action==='deleteEntry')result=db.prepare('DELETE FROM entries WHERE id=? AND revision=?').run(a.id,a.revision);
+  else if(a.action==='entry')result=saveEntry(a);
+  else if(a.action==='deleteEntry')result=db.prepare('DELETE FROM entries WHERE id=? AND revision=?').run(a.id,a.revision);
   else if(a.action==='plan'){result=savePlan(a);if(result.changes&&a.mealNote)saveMealNote(a);}
   else if(a.action==='planMealNote')result=saveMealNote(a);
   else if(a.action==='deletePlan')result=db.prepare('DELETE FROM plans WHERE id=? AND profileId=? AND revision=?').run(a.id,a.profileId,a.revision);

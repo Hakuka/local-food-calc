@@ -26,6 +26,19 @@ const plan={action:'plan',id:'planned-food',profileId:'janusz',date:'2026-10-19'
 const note={...plan,id:'planned-note',kind:'note',productId:null,grams:null,note:'Zamawiamy pizzę'};
 const dir=()=>mkdtempSync(join(tmpdir(),'diet-planner-test-'));
 
+test('Planner dialog title and UI labels preserve Polish characters',()=>{
+ const app=readFileSync(new URL('../app/diet-app.tsx',import.meta.url),'utf8');
+ assert.ok(app.includes("'Edytuj posiłek'"));
+ for(const path of ['../app/diet-app.tsx','../app/planner.tsx','../app/diary.tsx']){
+  const source=ts.createSourceFile(path,readFileSync(new URL(path,import.meta.url),'utf8'),ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
+  function visit(node){
+   if(ts.isStringLiteralLike(node)||ts.isJsxText(node))assert.doesNotMatch(node.text,/[\p{L}]\?[\p{L}]|\uFFFD|\u00c3|\u00c4|\u00c5/u,path);
+   ts.forEachChild(node,visit);
+  }
+  visit(source);
+ }
+});
+
 function mealEdit(data,changes={}){
  const originals=data.plans.filter(p=>p.profileId==='janusz'&&p.date===plan.date&&p.meal===plan.meal);
  const mealNote=data.planMealNotes.find(n=>n.profileId==='janusz'&&n.date===plan.date&&n.meal===plan.meal);
